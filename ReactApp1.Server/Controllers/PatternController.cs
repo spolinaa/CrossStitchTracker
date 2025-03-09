@@ -89,6 +89,7 @@ public class PatternController : ControllerBase
     [HttpGet]
     public string Get()
     {
+        
         //string dataDir = @"C:\Users\Polina\Desktop\PS\my projects\CrossStich\files\";
         ////string fileName = "scheme_70_50_new";
         //string fileName = "scheme_70_50_old";
