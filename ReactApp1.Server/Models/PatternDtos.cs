@@ -8,7 +8,10 @@ public sealed record PatternSummaryDto(
     int TotalCells,
     int FinishedCells,
     DateTime CreatedAt,
-    string? SourceFileName);
+    string? SourceFileName,
+    int PageCount,
+    int? GridCols,
+    int? GridRows);
 
 public sealed record PatternDetailDto(
     int Id,
@@ -51,7 +54,25 @@ public sealed record PatternPageDto(
     List<ColorDto> Colors,
     List<List<CellDto>> Rows,
     string? FontsLink,
-    Dictionary<string, string> Fonts);
+    Dictionary<string, string> Fonts,
+    int? GridCols,
+    int? GridRows,
+    List<SheetDto> Sheets);
+
+/// <summary>Один лист PDF на склеенном полотне: смещение и размер в клетках.</summary>
+public sealed record SheetDto(int Page, int Col, int Row, int X, int Y, int W, int H);
+
+/// <summary>Листы распознанной схемы для окна раскладки.</summary>
+public sealed record PatternSheetsDto(
+    int PatternId,
+    int SheetCount,
+    List<SheetDto> Sheets,
+    int? GridCols,
+    int? GridRows,
+    int CanvasW,
+    int CanvasH);
+
+public sealed record SetLayoutRequest(int Cols, int Rows);
 
 /// <summary>Пара из ключа палитры, сопоставленная с цветом схемы.</summary>
 public sealed record FlossKeyMatchDto(

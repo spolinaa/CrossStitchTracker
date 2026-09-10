@@ -143,6 +143,7 @@ public static class PdfSchemeParser
                 }
             }
 
+            scheme.Sheets.Add(new ParsedSheet(pageIndex, pageNum, cols, dataRows.Count));
             scheme.Width = Math.Max(scheme.Width, cols);
             scheme.Height = Math.Max(scheme.Height, dataRows.Count);
             pageIndex++;

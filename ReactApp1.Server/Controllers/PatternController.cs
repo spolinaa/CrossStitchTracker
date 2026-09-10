@@ -127,6 +127,35 @@ public class PatternController : ControllerBase
         return result is null ? NotFound() : Ok(result);
     }
 
+    /// <summary>Листы схемы и текущая раскладка — для окна «столбцы x ряды» после загрузки.</summary>
+    [HttpGet("/pattern/sheets")]
+    public async Task<IActionResult> GetSheets(
+        [FromHeader(Name = "Cookie")] string? cookie,
+        [FromQuery] int patternId)
+    {
+        var psuid = CookieHelper.GetPsuidCookie(cookie);
+        if (psuid is null)
+            return Unauthorized();
+
+        var result = await _patternService.GetSheetsAsync(psuid, patternId);
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    /// <summary>Задать раскладку листов (столбцы x ряды), полотно пересоберётся.</summary>
+    [HttpPost("/pattern/layout")]
+    public async Task<IActionResult> SetLayout(
+        [FromHeader(Name = "Cookie")] string? cookie,
+        [FromQuery] int patternId,
+        [FromBody] SetLayoutRequest request)
+    {
+        var psuid = CookieHelper.GetPsuidCookie(cookie);
+        if (psuid is null)
+            return Unauthorized();
+
+        var ok = await _patternService.SetLayoutAsync(psuid, patternId, request.Cols, request.Rows);
+        return ok ? Ok() : NotFound();
+    }
+
     /// <summary>Отметить одну клетку (закрашивание).</summary>
     [HttpPatch("/pattern/cell")]
     public async Task<IActionResult> SetCell(

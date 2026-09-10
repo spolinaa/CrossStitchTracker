@@ -19,6 +19,12 @@ public interface IPatternService
 
     Task<bool> SetCellAsync(string psuid, int patternId, int page, int x, int y, bool isFinished);
 
+    /// <summary>Раскладка листов на полотне (столбцы x ряды). Пересчитывает Width/Height.</summary>
+    Task<bool> SetLayoutAsync(string psuid, int patternId, int cols, int rows);
+
+    /// <summary>Сколько листов сетки распознано и их размеры в клетках.</summary>
+    Task<PatternSheetsDto?> GetSheetsAsync(string psuid, int patternId);
+
     /// <summary>Массовая отметка всех клеток одного цвета. Возвращает число обновленных.</summary>
     Task<int> SetColorCellsAsync(string psuid, int patternId, int colorId, bool isFinished);
 

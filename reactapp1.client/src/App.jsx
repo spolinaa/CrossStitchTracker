@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 // Client ID приложения из старого проекта (см. YandexAuth.jsx в WebPatternTracker).
@@ -28,6 +28,54 @@ function Preview({ mosaic }) {
     );
 }
 
+// Одна клетка полотна: memo + плоские пропсы, чтобы перерисовка
+// при закрашивании/подсветке трогала минимум DOM.
+// ВАЖНО: компонент объявлен на верхнем уровне (не внутри App),
+// иначе memo бесполезен — тип менялся бы каждый рендер.
+const PatternCell = memo(function PatternCell({
+    x, y, symbol, fontFamily, background, fg,
+    cellSize, showSymbol, isHL, onToggle, onSelect,
+}) {
+    return (
+        <td
+            title={`(${x},${y}) ${symbol ?? ''}`}
+            style={{
+                width: cellSize,
+                height: cellSize,
+                minWidth: cellSize,
+                fontSize: Math.max(8, cellSize - 6),
+                fontFamily,
+                background,
+                color: fg,
+                boxSizing: 'border-box',
+                padding: 0,
+                lineHeight: 1,
+                verticalAlign: 'middle',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textAlign: 'center',
+                ...(isHL
+                    ? { border: 'none', outline: 'none' }
+                    : {
+                        borderStyle: 'solid',
+                        borderWidth: 0,
+                        borderLeftWidth: x % 10 === 0 ? 2 : 1,
+                        borderTopWidth: y % 10 === 0 ? 2 : 1,
+                        borderLeftColor: x % 10 === 0 ? '#000' : '#bbb',
+                        borderTopColor: y % 10 === 0 ? '#000' : '#bbb',
+                    }),
+            }}
+            onContextMenu={e => {
+                e.preventDefault();
+                onSelect();
+            }}
+            onClick={onToggle}
+        >
+            {showSymbol ? symbol : ' '}
+        </td>
+    );
+});
+
 function App() {
     const [auth, setAuth] = useState('checking'); // checking | authorized | unauthorized
     const [patterns, setPatterns] = useState(null);
@@ -38,10 +86,22 @@ function App() {
     const [selectedId, setSelectedId] = useState(null);
     const [detail, setDetail] = useState(null);
     const [selectedColor, setSelectedColor] = useState(-1);
-    const [cellSize, setCellSize] = useState(20);
-    const [page, setPage] = useState(0);
+    const [cellSize, setCellSize] = useState(12);
     const [pageLoading, setPageLoading] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
     const fileRef = useRef(null);
+    const settingsRef = useRef(null);
+
+    useEffect(() => {
+        if (!showSettings) return;
+        function onDown(e) {
+            if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+                setShowSettings(false);
+            }
+        }
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [showSettings]);
 
     const loadPatterns = useCallback(async () => {
         setError(null);
@@ -153,6 +213,7 @@ function App() {
         setDetail(null);
         setSelectedColor(-1);
         setFontsLoaded(null);
+        setShowSettings(false);
         refreshHome();
     }
 
@@ -184,13 +245,83 @@ function App() {
             const { jobId } = await res.json();
             setJob({ jobId, currentPage: 0, totalPages: 0 });
             const st = await pollStatus(jobId);
-            await openPattern(st.patternId);
+            // После загрузки — окно раскладки листов, затем склеенное полотно.
+            await askLayout(st.patternId);
         } catch (err) {
             setError(String(err.message ?? err));
         } finally {
             setUploading(false);
             setJob(null);
             if (fileRef.current) fileRef.current.value = '';
+        }
+    }
+
+    // --- Раскладка листов: столбцы x ряды ---
+    const [layoutInfo, setLayoutInfo] = useState(null); // { patternId, sheetCount, sheets, gridCols, gridRows, canvasW, canvasH }
+    const [layoutCols, setLayoutCols] = useState(1);
+    const [layoutRows, setLayoutRows] = useState(1);
+    const [layoutSaving, setLayoutSaving] = useState(false);
+
+    async function askLayout(patternId) {
+        setError(null);
+        try {
+            const res = await fetch(`/pattern/sheets?patternId=${patternId}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const info = await res.json();
+            if (info.sheetCount <= 1) {
+                // Один лист — раскладка не нужна, сразу полотно.
+                await openPattern(patternId);
+                return;
+            }
+            // Дефолт: квадратная сетка (для 60 листов предложит 8x8 — поправь на 12x5).
+            const cols = info.gridCols || Math.ceil(Math.sqrt(info.sheetCount));
+            const rows = info.gridRows || Math.ceil(info.sheetCount / cols);
+            setLayoutCols(cols);
+            setLayoutRows(rows);
+            setLayoutInfo({ patternId, ...info });
+        } catch (err) {
+            // Не смогли спросить — открываем как есть.
+            await openPattern(patternId);
+        }
+    }
+
+    function layoutPreview(cols, rows, sheets) {
+        // Миниатюра раскладки: номера листов по ячейкам сетки.
+        const grid = [];
+        for (let r = 0; r < rows; r++) {
+            const row = [];
+            for (let c = 0; c < cols; c++) {
+                const i = r * cols + c;
+                row.push(i < sheets.length ? sheets[i].page + 1 : null);
+            }
+            grid.push(row);
+        }
+        return grid;
+    }
+
+    async function saveLayout() {
+        if (!layoutInfo) return;
+        const cols = Math.max(1, layoutCols | 0);
+        const rows = Math.max(1, layoutRows | 0);
+        if (cols * rows < layoutInfo.sheetCount) {
+            setError(`Сетка ${cols}×${rows} не вмещает ${layoutInfo.sheetCount} листов — увеличь столбцы или ряды.`);
+            return;
+        }
+        setLayoutSaving(true);
+        setError(null);
+        try {
+            const res = await fetch(`/pattern/layout?patternId=${layoutInfo.patternId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cols, rows }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setLayoutInfo(null);
+            await openPattern(layoutInfo.patternId);
+        } catch (err) {
+            setError(String(err.message ?? err));
+        } finally {
+            setLayoutSaving(false);
         }
     }
 
@@ -246,24 +377,36 @@ function App() {
         setFontsLoaded({ ok, total: Object.keys(data.fonts).length });
     }
 
-    async function openPattern(id, page = 0) {
+    // Стартовый масштаб: по вертикали помещается 50 клеток.
+    function fitCellSize70x50() {
+        const chromeY = 120;
+        const availH = Math.max(200, (window.innerHeight || 800) - chromeY);
+        return Math.max(4, Math.min(32, Math.floor(availH / 50)));
+    }
+
+    async function openPattern(id) {
         setError(null);
         setPageLoading(true);
         try {
-            const res = await fetch(`/pattern/page?patternId=${id}&page=${page}`);
+            // Склеенное полотно: бэкенд отдаёт все листы рядом, page всегда 0.
+            const res = await fetch(`/pattern/page?patternId=${id}&page=0`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             await loadPatternFonts(data);
             setSelectedId(data.id);
             setDetail(data);
-            setCellSize(20);
-            setPage(data.page);
+            setCellSize(fitCellSize70x50());
             setSelectedColor(-1);
         } catch (err) {
             setError(String(err.message ?? err));
         } finally {
             setPageLoading(false);
         }
+    }
+
+    async function changeLayout() {
+        if (selectedId === null) return;
+        await askLayout(selectedId);
     }
 
     async function toggleCell(cell) {
@@ -284,12 +427,18 @@ function App() {
             await fetch('/pattern/cell', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ patternId: selectedId, page, x: cell.x, y: cell.y, isFinished: next }),
+                // Координаты глобальные по полотну, page=0: бэкенд сам найдёт лист.
+                body: JSON.stringify({ patternId: selectedId, page: 0, x: cell.x, y: cell.y, isFinished: next }),
             });
         } catch (err) {
             setError(String(err.message ?? err));
         }
     }
+
+    const toggleCellCb = useCallback(cell => toggleCell(cell), [selectedId]);
+    const selectColorCb = useCallback((colorId) => {
+        setSelectedColor(prev => (prev === colorId ? -1 : colorId));
+    }, []);
 
     async function markColor(colorId, isFinished) {
         try {
@@ -299,7 +448,7 @@ function App() {
                 body: JSON.stringify({ patternId: selectedId, colorId, isFinished }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            await openPattern(selectedId, page);
+            await openPattern(selectedId);
         } catch (err) {
             setError(String(err.message ?? err));
         }
@@ -312,35 +461,54 @@ function App() {
         else refreshHome();
     }
 
-    const pageCount = detail?.pageCount ?? 0;
     const rows = detail?.rows ?? [];
     const total = detail?.colors?.reduce((s, c) => s + c.totalCells, 0) ?? 0;
     const done = detail?.colors?.reduce((s, c) => s + c.finishedCells, 0) ?? 0;
 
+    // Карта цветов по colorId: O(1) вместо find() на каждую клетку.
+    const colorById = useMemo(() => {
+        const m = new Map();
+        for (const c of detail?.colors ?? []) m.set(c.colorId, c);
+        return m;
+    }, [detail?.colors]);
+    const flossHexById = useMemo(() => {
+        const m = new Map();
+        for (const c of detail?.colors ?? []) m.set(c.colorId, c.flossHex);
+        return m;
+    }, [detail?.colors]);
+    const fontById = useMemo(() => {
+        const m = new Map();
+        for (const c of detail?.colors ?? [])
+            m.set(c.colorId, c.font ? fontFamily(detail.id, c.font) : undefined);
+        return m;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [detail?.id, detail?.colors]);
+    const symbolById = useMemo(() => {
+        const m = new Map();
+        for (const c of detail?.colors ?? []) m.set(c.colorId, c.symbol);
+        return m;
+    }, [detail?.colors]);
+    // Подписи-метки на границе каждых 10 клеток (10, 20, 30…):
+    // номер висит над линией между клетками, а не в отдельной полосе.
+    const rulerMarksX = rows.length > 0 && rows[0].length > 0
+        ? rows[0].map((_, gx) => gx + 1).filter(n => n % 10 === 0)
+        : [];
+    const rulerMarksY = rows.map((_, ry) => ry + 1).filter(n => n % 10 === 0);
+    // Отступ под цифры: трём знакам (100+) нужно шире.
+    const maxMark = Math.max(0, ...rulerMarksX, ...rulerMarksY);
+    const rulerPad = maxMark >= 100 ? 30 : 18;
+
     function zoom(delta) {
-        setCellSize(s => Math.min(40, Math.max(8, s + delta)));
-    }
-
-    // Черно-белая схема + цвета ниток: вышитые клетки красятся
-    // hex'ом своих ниток (если привязаны), остальные — ч/б.
-    // Выбранный цвет подсвечивается ярко-оранжевым поверх.
-    function flossOf(colorId) {
-        return detail?.colors?.find(c => c.colorId === colorId);
-    }
-
-    function isDark(hex) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+        setCellSize(s => Math.min(48, Math.max(4, s + delta)));
     }
 
     function cellBackground(cell) {
         const hl = selectedColor !== -1 && cell.colorId === selectedColor;
         if (hl) return cell.isFinished ? '#c2410c' : '#ff8c1a';
         if (cell.isFinished) {
-            const hex = flossOf(cell.colorId)?.flossHex;
-            return hex || '#000';
+            const hex = flossHexById.get(cell.colorId);
+            // Нитка не привязана — светло-серый вместо чёрного.
+            return hex || '#d3d3d3';
         }
         return '#fff';
     }
@@ -353,6 +521,14 @@ function App() {
         return '#000';
     }
 
+    const [legendSort, setLegendSort] = useState('todo'); // todo | color
+    const legendSorted = useMemo(() => {
+        if (!detail?.colors) return [];
+        return [...detail.colors].sort((a, b) => legendSort === 'color'
+            ? a.colorId - b.colorId
+            : ((b.totalCells - b.finishedCells) - (a.totalCells - a.finishedCells)) || (a.colorId - b.colorId));
+    }, [detail?.colors, legendSort]);
+
     // --- Нитки: ключ палитры ---
     const [brands, setBrands] = useState([]);
     const [showFloss, setShowFloss] = useState(false);
@@ -362,7 +538,6 @@ function App() {
     const [keySelected, setKeySelected] = useState([]);
     const [keyPairs, setKeyPairs] = useState(null);
     const [keyDebug, setKeyDebug] = useState([]);
-    const [legendSort, setLegendSort] = useState('todo'); // todo | color
     const [keyLoading, setKeyLoading] = useState(false);
     const [keyFonts, setKeyFonts] = useState(null); // { fontsLink, fonts } шрифты PDF-ключа
     const keyFileRef = useRef(null);
@@ -477,7 +652,7 @@ function App() {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             setShowFloss(false);
             setKeyPairs(null);
-            await openPattern(selectedId, page);
+            await openPattern(selectedId);
         } catch (err) {
             setError(String(err.message ?? err));
         }
@@ -499,7 +674,7 @@ function App() {
                 body: JSON.stringify({ colorId, brand, code }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            await openPattern(selectedId, page);
+            await openPattern(selectedId);
         } catch (err) {
             setError(String(err.message ?? err));
         }
@@ -507,18 +682,68 @@ function App() {
 
     return (
         <div className="tracker">
-            <header>
-                <h1>CrossStitch Tracker</h1>
-                <div className="auth-row">
-                    {auth === 'authorized'
-                        ? <button onClick={logout}>Выйти</button>
-                        : auth === 'unauthorized'
-                            ? <button onClick={login}>Войти через Яндекс</button>
-                            : null}
+            {auth === 'unauthorized' && (
+                <div className="auth-row solo">
+                    <button onClick={login}>Войти через Яндекс</button>
                 </div>
-            </header>
+            )}
 
             {error && <p className="error">{error}</p>}
+
+            {layoutInfo && (
+                <div className="modal-backdrop" onClick={() => setLayoutInfo(null)}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <h3>Раскладка листов</h3>
+                        <p className="hint">
+                            Распознано листов сетки: {layoutInfo.sheetCount}.
+                            Укажи, как они лежат в PDF: сколько столбцов и рядов
+                            (например, 60 листов = 12 столбцов × 5 рядов).
+                        </p>
+                        <div className="floss-row">
+                            <label>
+                                Столбцов:&nbsp;
+                                <input
+                                    type="number" min={1} max={layoutInfo.sheetCount}
+                                    value={layoutCols}
+                                    onChange={e => setLayoutCols(Number(e.target.value))}
+                                    style={{ width: '4em' }}
+                                />
+                            </label>
+                            <label>
+                                Рядов:&nbsp;
+                                <input
+                                    type="number" min={1} max={layoutInfo.sheetCount}
+                                    value={layoutRows}
+                                    onChange={e => setLayoutRows(Number(e.target.value))}
+                                    style={{ width: '4em' }}
+                                />
+                            </label>
+                            <span className="meta">
+                                {layoutCols * layoutRows < layoutInfo.sheetCount
+                                    ? `⚠ сетка ${layoutCols}×${layoutRows} не вмещает ${layoutInfo.sheetCount} листов`
+                                    : 'листы влезут'}
+                            </span>
+                        </div>
+                        <div className="layout-preview">
+                            {layoutPreview(layoutCols, layoutRows, layoutInfo.sheets).map((row, r) => (
+                                <div key={r} className="layout-row">
+                                    {row.map((n, c) => (
+                                        <span key={c} className={n === null ? 'layout-cell empty' : 'layout-cell'}>
+                                            {n ?? '·'}
+                                        </span>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="floss-row">
+                            <button disabled={layoutSaving} onClick={saveLayout}>
+                                {layoutSaving ? 'Склеиваю…' : 'Склеить схему'}
+                            </button>
+                            <button className="link" onClick={() => setLayoutInfo(null)}>Позже</button>
+                                </div>
+                        </div>
+                        </div>
+                        )}
 
             {auth === 'checking' ? (
                 <p>Проверяю вход…</p>
@@ -526,15 +751,51 @@ function App() {
                 <p>Войди через Яндекс, чтобы увидеть свои схемы.</p>
             ) : selectedId !== null && detail ? (
                 <section>
-                    <button className="link back" onClick={goHome}>← Назад к схемам</button>
-                    <h2>
-                        {detail.name} — {done}/{total} ({pageCount} стр.)
-                        {fontsLoaded && (
-                            <span className="meta"> · шрифты {fontsLoaded.ok}/{fontsLoaded.total}</span>
-                        )}
-                    </h2>
-                    <div className="pages-row">
-                        <button onClick={openFloss}>＋ Добавить цвета ниток</button>
+                    <div className="title-row nav-row">
+                        <button className="link back" onClick={goHome}>← Назад к схемам</button>
+                        <div className="dots-wrap" ref={settingsRef}>
+                            <button
+                                className="dots-btn"
+                                title="Настройки схемы"
+                                onClick={() => setShowSettings(v => !v)}
+                            >⋯</button>
+                            {showSettings && (
+                                <div className="dots-menu">
+                                    <div className="dots-desc">
+                                        <div className="dots-title">{detail.name}</div>
+                                        <div>Полотно {detail.width}×{detail.height}</div>
+                                        <div>Вышито {done}/{total}</div>
+                                        {detail.gridCols && detail.gridRows && (
+                                            <div>Листы {detail.gridCols}×{detail.gridRows}</div>
+                                        )}
+                                        {detail.sheets?.length > 1 && (
+                                            <div>Листов: {detail.sheets.length}</div>
+                                        )}
+                                        {fontsLoaded && (
+                                            <div>Шрифты {fontsLoaded.ok}/{fontsLoaded.total}</div>
+                                        )}
+                                    </div>
+                                    <button
+                                        className="dots-item"
+                                        onClick={() => { setShowSettings(false); openFloss(); }}
+                                    >＋ Добавить цвета ниток</button>
+                                    {detail.sheets?.length > 1 && (
+                                        <button
+                                            className="dots-item"
+                                            onClick={() => { setShowSettings(false); changeLayout(); }}
+                                        >Изменить раскладку</button>
+                                    )}
+                                    <div className="dots-zoom">
+                                        <span>Масштаб</span>
+                                        <span className="zoom">
+                                            <button onClick={() => zoom(-2)}>−</button>
+                                            <span>{cellSize}px</span>
+                                            <button onClick={() => zoom(2)}>+</button>
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     {showFloss && (
                         <div className="modal-backdrop" onClick={() => setShowFloss(false)}>
@@ -612,77 +873,84 @@ function App() {
                             </div>
                         </div>
                     )}
-                    <div className="pages-row">
-                        <button disabled={pageLoading || page <= 0} onClick={() => openPattern(selectedId, page - 1)}>←</button>
-                        <span>Стр. {page + 1} / {pageCount}</span>
-                        <button disabled={pageLoading || page >= pageCount - 1} onClick={() => openPattern(selectedId, page + 1)}>→</button>
-                        <span className="zoom">
-                            <button onClick={() => zoom(-4)}>−</button>
-                            <span>{cellSize}px</span>
-                            <button onClick={() => zoom(4)}>+</button>
-                        </span>
-                        {selectedColor !== -1 && (
-                            <>
-                                <span className="hl">Выбран цвет {selectedColor}</span>
-                                <button onClick={() => markColor(selectedColor, true)}>Закрасить весь цвет</button>
-                                <button onClick={() => markColor(selectedColor, false)}>Снять весь цвет</button>
-                                <button onClick={() => setSelectedColor(-1)}>Сбросить выбор</button>
-                            </>
-                        )}
-                    </div>
+                    {selectedColor !== -1 && (
+                        <div className="pages-row">
+                            <span className="hl">Выбран цвет {selectedColor}</span>
+                            <button onClick={() => markColor(selectedColor, true)}>Закрасить весь цвет</button>
+                            <button onClick={() => markColor(selectedColor, false)}>Снять весь цвет</button>
+                            <button onClick={() => setSelectedColor(-1)}>Сбросить выбор</button>
+                        </div>
+                    )}
                     <div className="viewer">
                         {pageLoading ? (
-                            <p>Загружаю страницу…</p>
+                            <p>Загружаю полотно…</p>
                         ) : (
+                        <div className="canvas-scroll">
+                            <div className="canvas-inner">
+                            <div className="ruler-top" style={{ marginLeft: rulerPad, height: rulerPad, width: (rows[0]?.length || 0) * cellSize }}>
+                                {rulerMarksX.map(n => (
+                                    <span
+                                        key={n}
+                                        className="ruler-mark"
+                                        style={{ left: n * cellSize, fontSize: Math.max(9, cellSize - 6) }}
+                                    >
+                                        {n}
+                                    </span>
+                                ))}
+                            </div>
+                            <div className="canvas-body">
+                                <div className="ruler-left" style={{ width: rulerPad }}>
+                                    {rulerMarksY.map(n => (
+                                        <span
+                                            key={n}
+                                            className="ruler-mark"
+                                            style={{ top: n * cellSize, fontSize: Math.max(9, cellSize - 6) }}
+                                        >
+                                            {n}
+                                        </span>
+                                    ))}
+                                </div>
                         <table className="pattern-table">
                             <tbody>
-                                {rows.map(row => (
-                                    <tr key={row[0]?.y}>
+                                {rows.map((row, ry) => (
+                                    <tr key={row[0]?.y ?? ry}>
                                         {row.map(cell => {
-                                            const color = detail.colors.find(c => c.colorId === cell.colorId);
+                                            const isHL = cell.isFinished || (selectedColor !== -1 && cell.colorId === selectedColor);
+                                            const hlSel = selectedColor !== -1 && cell.colorId === selectedColor;
+                                            const hex = flossHexById.get(cell.colorId);
+                                            const background = hlSel
+                                                ? (cell.isFinished ? '#c2410c' : '#ff8c1a')
+                                                : cell.isFinished
+                                                    ? (hex || '#d3d3d3')
+                                                    : '#fff';
+                                            const fg = cell.isFinished
+                                                ? (hlSel ? '#fff' : '#ddd')
+                                                : hlSel ? '#7c2d12' : '#000';
+                                            const symbol = symbolById.get(cell.colorId);
                                             return (
-<td key={cell.x}
-       title={`(${cell.x},${cell.y}) ${color?.symbol ?? ''}`}
-       style={{
-           width: cellSize,
-           height: cellSize,
-           minWidth: cellSize,
-           fontSize: Math.max(8, cellSize - 6),
-           fontFamily: color?.font ? fontFamily(detail.id, color.font) : undefined,
-            background: cellBackground(cell),
-             color: cellColor(cell),
-            boxSizing: 'border-box',
-            padding: 0,
-            lineHeight: 1,
-            verticalAlign: 'middle',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textAlign: 'center',
-            ...((cell.isFinished || (selectedColor !== -1 && cell.colorId === selectedColor))
-                ? { border: 'none', outline: 'none' }
-                : {
-                    borderStyle: 'solid',
-                    borderWidth: 0,
-                    borderLeftWidth: cell.x % 10 === 0 ? 2 : 1,
-                    borderTopWidth: cell.y % 10 === 0 ? 2 : 1,
-                    borderLeftColor: cell.x % 10 === 0 ? '#000' : '#bbb',
-                    borderTopColor: cell.y % 10 === 0 ? '#000' : '#bbb',
-                }),
-        }}
-        className={undefined}
-                                                    onContextMenu={e => {
-                                                        e.preventDefault();
-                                                        setSelectedColor(prev => (prev === cell.colorId ? -1 : cell.colorId));
-                                                    }}
-                                                    onClick={() => toggleCell(cell)}>
-                                                    {!cell.isFinished && (color?.symbol === 'EMPTY' ? ' ' : color?.symbol)}
-                                                </td>
+                                                <PatternCell
+                                                    key={cell.x}
+                                                    x={cell.x}
+                                                    y={cell.y}
+                                                    symbol={symbol === 'EMPTY' ? ' ' : symbol}
+                                                    fontFamily={fontById.get(cell.colorId)}
+                                                    background={background}
+                                                    fg={fg}
+                                                    cellSize={cellSize}
+                                                    showSymbol={!cell.isFinished}
+                                                    isHL={isHL}
+                                                    onToggle={() => toggleCellCb(cell)}
+                                                    onSelect={() => selectColorCb(cell.colorId)}
+                                                />
                                             );
                                         })}
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                            </div>
+                        </div>
+                        </div>
                         )}
                         <aside className="legend">
                             <h3>Цвета</h3>
@@ -701,10 +969,7 @@ function App() {
                                 >по схеме</button>
                             </div>
                             <ul>
-                                {[...detail.colors]
-                                    .sort((a, b) => legendSort === 'color'
-                                        ? a.colorId - b.colorId
-                                        : ((b.totalCells - b.finishedCells) - (a.totalCells - a.finishedCells)) || (a.colorId - b.colorId))
+                                {legendSorted
                                     .map(c => (
                                     <li key={c.colorId} className={c.colorId === selectedColor ? 'active' : ''}>
                                         <span

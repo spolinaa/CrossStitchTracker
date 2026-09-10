@@ -35,7 +35,10 @@ public class PatternService : IPatternService
                 p.Cells.Count,
                 p.Cells.Count(c => c.IsFinished),
                 p.CreatedAt,
-                p.SourceFileName))
+                p.SourceFileName,
+                p.Cells.Select(c => c.Page).Distinct().Count(),
+                p.GridCols,
+                p.GridRows))
             .ToListAsync();
     }
 
@@ -110,7 +113,7 @@ public class PatternService : IPatternService
     {
         var meta = await _db.Patterns.AsNoTracking()
             .Where(p => p.Id == id && p.Owner.YandexPsuid == psuid)
-            .Select(p => new { p.Id, p.Name, p.Width, p.Height })
+            .Select(p => new { p.Id, p.Name, p.Width, p.Height, p.GridCols, p.GridRows })
             .FirstOrDefaultAsync();
         if (meta is null)
             return null;
@@ -133,21 +136,59 @@ public class PatternService : IPatternService
             .CountAsync();
         if (pageCount == 0)
             return null;
-        page = Math.Clamp(page, 0, pageCount - 1);
 
-        var flat = await _db.PatternCells.AsNoTracking()
-            .Where(c => c.PatternId == id && c.Page == page)
-            .OrderBy(c => c.Y)
-            .ThenBy(c => c.X)
+        // Склеенное полотно: все листы рядом по раскладке GridCols x GridRows.
+        var sheetRows = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == id)
+            .GroupBy(c => c.Page)
+            .Select(g => new
+            {
+                Page = g.Key,
+                MaxX = g.Max(c => c.X),
+                MaxY = g.Max(c => c.Y)
+            })
+            .OrderBy(s => s.Page)
             .ToListAsync();
+        var sheets = sheetRows.Select(s => new SheetSize(s.Page, s.MaxX + 1, s.MaxY + 1)).ToList();
+        var layout = BuildLayout(sheets, meta.GridCols, meta.GridRows);
+        var byGlobal = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == id)
+            .ToListAsync();
+        var cellByPage = byGlobal
+            .GroupBy(c => (c.Page, c.Y, c.X))
+            .ToDictionary(g => g.Key, g => g.First());
 
-        var rows = flat
-            .GroupBy(c => c.Y)
-            .OrderBy(g => g.Key)
-            .Select(g => g.Select(c => new CellDto(c.X, c.Y, c.ColorIndex, c.IsFinished, c.BgColor)).ToList())
-            .ToList();
+        var stitched = new List<List<CellDto>>();
+        for (int gy = 0; gy < layout.TotalH; gy++)
+        {
+            var row = new List<CellDto>();
+            for (int gx = 0; gx < layout.TotalW; gx++)
+            {
+                PlacedSheet? hit = null;
+                int hlx = 0, hly = 0;
+                foreach (var pl in layout.Placement)
+                {
+                    int lx = gx - pl.X, ly = gy - pl.Y;
+                    if (lx >= 0 && ly >= 0 && lx < pl.W && ly < pl.H)
+                    {
+                        hit = pl; hlx = lx; hly = ly;
+                        break;
+                    }
+                }
+                if (hit is null)
+                {
+                    row.Add(new CellDto(gx, gy, -1, true, null));
+                    continue;
+                }
+                if (cellByPage.TryGetValue((hit.Page, hly, hlx), out var c))
+                    row.Add(new CellDto(gx, gy, c.ColorIndex, c.IsFinished, c.BgColor));
+                else
+                    row.Add(new CellDto(gx, gy, -1, true, null));
+            }
+            stitched.Add(row);
+        }
 
-        var samples = flat
+        var samples = byGlobal
             .GroupBy(c => c.ColorIndex)
             .ToDictionary(
                 g => g.Key,
@@ -159,8 +200,52 @@ public class PatternService : IPatternService
             return new ColorDto(c.ColorIndex, c.Symbol, c.Font, agg?.Total ?? 0, agg?.Done ?? 0, samples.GetValueOrDefault(c.ColorIndex), c.FlossBrand, c.FlossCode, c.FlossHex);
         }).ToList();
 
-        return new PatternPageDto(meta.Id, meta.Name, meta.Width, meta.Height, page, pageCount, colorDtos, rows,
-            GetFontsLink(id), GetFontsMap(id));
+        var sheetDtos = layout.Placement
+            .Select(pl => new SheetDto(pl.Page, pl.Col, pl.Row, pl.X, pl.Y, pl.W, pl.H))
+            .ToList();
+
+        return new PatternPageDto(meta.Id, meta.Name, layout.TotalW, layout.TotalH, 0, 1, colorDtos, stitched,
+            GetFontsLink(id), GetFontsMap(id), layout.Cols, layout.Rows, sheetDtos);
+    }
+
+    /// <summary>Раскладка листов на полотне: по строкам слева направо.</summary>
+    private sealed record SheetSize(int Page, int W, int H);
+
+    private sealed record PlacedSheet(int Page, int Col, int Row, int X, int Y, int W, int H);
+
+    private static (int Cols, int Rows, int TotalW, int TotalH, List<PlacedSheet> Placement)
+        BuildLayout(List<SheetSize> sheets, int? gridCols, int? gridRows)
+    {
+        int n = sheets.Count;
+        int cols = gridCols is > 0 ? gridCols.Value : n;
+        cols = Math.Clamp(cols, 1, Math.Max(1, n));
+        int rows = gridRows is > 0 ? gridRows.Value : (int)Math.Ceiling(n / (double)cols);
+        rows = Math.Max(1, rows);
+
+        // Ширина каждой колонки = максимум ширин листов в ней; аналогично ряды.
+        var colW = new int[cols];
+        var rowH = new int[rows];
+        var cells = new List<PlacedSheet>();
+        for (int i = 0; i < sheets.Count; i++)
+        {
+            int col = i % cols, row = i / cols;
+            if (row >= rows) break;
+            int w = sheets[i].W, h = sheets[i].H;
+            cells.Add(new PlacedSheet(sheets[i].Page, col, row, 0, 0, w, h));
+            colW[col] = Math.Max(colW[col], w);
+            rowH[row] = Math.Max(rowH[row], h);
+        }
+        var colX = new int[cols];
+        for (int c = 1; c < cols; c++) colX[c] = colX[c - 1] + colW[c - 1];
+        var rowY = new int[rows];
+        for (int r = 1; r < rows; r++) rowY[r] = rowY[r - 1] + rowH[r - 1];
+        int totalW = cols == 0 ? 0 : colX[cols - 1] + colW[cols - 1];
+        int totalH = rows == 0 ? 0 : rowY[rows - 1] + rowH[rows - 1];
+
+        var placement = cells
+            .Select(c => c with { X = colX[c.Col], Y = rowY[c.Row] })
+            .ToList();
+        return (cols, rows, totalW, totalH, placement);
     }
 
     private string? GetFontsLink(int patternId)
@@ -244,9 +329,19 @@ public class PatternService : IPatternService
 
     public async Task<bool> SetCellAsync(string psuid, int patternId, int page, int x, int y, bool isFinished)
     {
+        // Клик приходит с глобальными координатами полотна: разворачиваем
+        // в (лист, локальные x/y) по текущей раскладке GridCols/GridRows.
+        var (ok, realPage, lx, ly) = await ResolveGlobalCellAsync(psuid, patternId, x, y);
+        if (!ok)
+            return false;
+        if (page != 0 && page != realPage)
+        {
+            // фронт в режиме полотна всегда шлёт page=0 — иначе сверяем.
+        }
+
         var cell = await _db.PatternCells
             .Where(c => c.PatternId == patternId
-                && c.Page == page && c.X == x && c.Y == y
+                && c.Page == realPage && c.X == lx && c.Y == ly
                 && _db.Patterns.Any(p => p.Id == patternId && p.Owner.YandexPsuid == psuid))
             .FirstOrDefaultAsync();
 
@@ -254,6 +349,109 @@ public class PatternService : IPatternService
             return false;
 
         cell.IsFinished = isFinished;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>Глобальные координаты полотна -> (лист, локальные x/y).</summary>
+    private async Task<(bool Ok, int Page, int X, int Y)> ResolveGlobalCellAsync(
+        string psuid, int patternId, int gx, int gy)
+    {
+        var owned = await _db.Patterns.AsNoTracking()
+            .Where(p => p.Id == patternId && p.Owner.YandexPsuid == psuid)
+            .Select(p => new { p.GridCols, p.GridRows })
+            .FirstOrDefaultAsync();
+        if (owned is null)
+            return (false, 0, 0, 0);
+
+        var sheetRows4 = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == patternId)
+            .GroupBy(c => c.Page)
+            .Select(g => new
+            {
+                Page = g.Key,
+                MaxX = g.Max(c => c.X),
+                MaxY = g.Max(c => c.Y)
+            })
+            .OrderBy(s => s.Page)
+            .ToListAsync();
+        var layout = BuildLayout(sheetRows4.Select(s => new SheetSize(s.Page, s.MaxX + 1, s.MaxY + 1)).ToList(), owned.GridCols, owned.GridRows);
+        foreach (var pl in layout.Placement)
+        {
+            int lx = gx - pl.X, ly = gy - pl.Y;
+            if (lx >= 0 && ly >= 0 && lx < pl.W && ly < pl.H)
+                return (true, pl.Page, lx, ly);
+        }
+        return (false, 0, 0, 0);
+    }
+
+    public async Task<PatternSheetsDto?> GetSheetsAsync(string psuid, int patternId)
+    {
+        var pattern = await _db.Patterns.AsNoTracking()
+            .Where(p => p.Id == patternId && p.Owner.YandexPsuid == psuid)
+            .Select(p => new { p.Id, p.GridCols, p.GridRows })
+            .FirstOrDefaultAsync();
+        if (pattern is null)
+            return null;
+
+        var sheetRows2 = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == patternId)
+            .GroupBy(c => c.Page)
+            .Select(g => new
+            {
+                Page = g.Key,
+                MaxX = g.Max(c => c.X),
+                MaxY = g.Max(c => c.Y)
+            })
+            .OrderBy(s => s.Page)
+            .ToListAsync();
+        var layout = BuildLayout(sheetRows2.Select(s => new SheetSize(s.Page, s.MaxX + 1, s.MaxY + 1)).ToList(), pattern.GridCols, pattern.GridRows);
+        return new PatternSheetsDto(
+            patternId,
+            sheetRows2.Count,
+            layout.Placement.Select(pl => new SheetDto(pl.Page, pl.Col, pl.Row, pl.X, pl.Y, pl.W, pl.H)).ToList(),
+            layout.Cols, layout.Rows, layout.TotalW, layout.TotalH);
+    }
+
+    public async Task<bool> SetLayoutAsync(string psuid, int patternId, int cols, int rows)
+    {
+        var pattern = await _db.Patterns
+            .Where(p => p.Id == patternId && p.Owner.YandexPsuid == psuid)
+            .FirstOrDefaultAsync();
+        if (pattern is null)
+            return false;
+
+        int sheetCount = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == patternId)
+            .Select(c => c.Page)
+            .Distinct()
+            .CountAsync();
+        if (sheetCount == 0)
+            return false;
+
+        cols = Math.Clamp(cols, 1, Math.Max(1, sheetCount));
+        rows = Math.Clamp(rows, 1, Math.Max(1, sheetCount));
+        // Раскладка обязана вместить все листы.
+        while (cols * rows < sheetCount)
+            rows++;
+
+        var sheetRows3 = await _db.PatternCells.AsNoTracking()
+            .Where(c => c.PatternId == patternId)
+            .GroupBy(c => c.Page)
+            .Select(g => new
+            {
+                Page = g.Key,
+                MaxX = g.Max(c => c.X),
+                MaxY = g.Max(c => c.Y)
+            })
+            .OrderBy(s => s.Page)
+            .ToListAsync();
+        var layout = BuildLayout(sheetRows3.Select(s => new SheetSize(s.Page, s.MaxX + 1, s.MaxY + 1)).ToList(), cols, rows);
+
+        pattern.GridCols = cols;
+        pattern.GridRows = layout.Rows;
+        pattern.Width = layout.TotalW;
+        pattern.Height = layout.TotalH;
         await _db.SaveChangesAsync();
         return true;
     }

@@ -1,9 +1,11 @@
 ﻿#root {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 1rem 2rem;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0.5rem;
     text-align: left;
     vertical-align: top;
+    box-sizing: border-box;
 }
 
 body {
@@ -13,6 +15,21 @@ body {
 .tracker {
     text-align: left;
     color: #213547;
+    max-width: none;
+    width: 100%;
+    box-sizing: border-box;
+    height: calc(100vh - 1rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tracker > section {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .tracker header {
@@ -23,10 +40,117 @@ body {
     gap: 1rem;
 }
 
+.title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.title-row.nav-row {
+    justify-content: space-between;
+}
+
+.title-row .title-name {
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.title-row .back {
+    margin-bottom: 0;
+}
+
+.dots-desc .dots-title {
+    font-weight: bold;
+    color: #213547;
+    overflow-wrap: anywhere;
+}
+
+.dots-wrap {
+    position: relative;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.dots-btn {
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0.15rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
+    cursor: pointer;
+    color: #213547;
+}
+
+.dots-btn:hover {
+    border-color: #1a73e8;
+}
+
+.dots-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 20;
+    min-width: 250px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    color: #213547;
+}
+
+.dots-desc {
+    font-size: 0.85rem;
+    color: #666;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.dots-item {
+    text-align: left;
+    background: #f8fbff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #213547;
+}
+
+.dots-item:hover {
+    border-color: #1a73e8;
+}
+
+.dots-zoom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.2rem 0.1rem 0;
+}
+
 .auth-row {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+.auth-row.solo {
+    justify-content: flex-end;
+    padding: 0.5rem 0;
 }
 
 .error {
@@ -196,8 +320,13 @@ body {
 
 .viewer {
     display: flex;
-    gap: 1rem;
-    align-items: flex-start;
+    gap: 0.75rem;
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .pattern-table {
@@ -228,6 +357,104 @@ body {
 .pattern-table tr {
     content-visibility: auto;
     contain-intrinsic-size: auto 20px;
+}
+
+/* Подписи-метки на границе каждых 10 клеток (10, 20, 30…).
+   Цифры висят в отступе слева/сверху, на уровне линии между клетками,
+   отдельной полосы с клетками нет. Панели липкие: верхняя — к верху
+   скролла, левая — к левому краю. Чёрная обводка — вокруг всего полотна. */
+.canvas-inner {
+    position: relative;
+    display: inline-block;
+}
+
+.ruler-top {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #fafafa;
+}
+
+.ruler-top .ruler-mark {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-family: monospace;
+    font-weight: bold;
+    color: #000;
+    background: #fafafa;
+    padding: 0 2px;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.canvas-body {
+    display: flex;
+    align-items: flex-start;
+}
+
+.ruler-left {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    flex-shrink: 0;
+    background: #fafafa;
+    align-self: stretch;
+}
+
+.ruler-left .ruler-mark {
+    position: absolute;
+    right: 2px;
+    transform: translateY(-50%);
+    font-family: monospace;
+    font-weight: bold;
+    color: #000;
+    background: #fafafa;
+    padding: 0 2px;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.canvas-scroll {
+    overflow: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fafafa;
+}
+
+.layout-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0.5rem 0;
+    max-width: 100%;
+    overflow: auto;
+}
+
+.layout-row {
+    display: flex;
+    gap: 2px;
+}
+
+.layout-cell {
+    min-width: 2.2em;
+    text-align: center;
+    font-family: monospace;
+    font-size: 0.8rem;
+    border: 1px solid #1a73e8;
+    border-radius: 3px;
+    padding: 0.1rem 0.25rem;
+    background: #f0f6ff;
+}
+
+.layout-cell.empty {
+    border-color: #ddd;
+    background: #f5f5f5;
+    color: #bbb;
 }
 
 .zoom {
@@ -381,13 +608,21 @@ body {
 }
 
 .legend {
-    max-width: 320px;
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .legend ul {
     list-style: none;
     padding: 0;
-    max-height: 600px;
+    margin: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow: auto;
 }
 

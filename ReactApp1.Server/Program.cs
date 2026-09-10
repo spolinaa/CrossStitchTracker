@@ -54,7 +54,9 @@ using (var scope = app.Services.CreateScope())
                      ("PatternCells", "BgColor", "TEXT"),
                      ("PatternColors", "FlossBrand", "TEXT"),
                      ("PatternColors", "FlossCode", "TEXT"),
-                     ("PatternColors", "FlossHex", "TEXT")
+                     ("PatternColors", "FlossHex", "TEXT"),
+                     ("Patterns", "GridCols", "INTEGER"),
+                     ("Patterns", "GridRows", "INTEGER")
                  })
         {
             using var checkCmd = conn.CreateCommand();

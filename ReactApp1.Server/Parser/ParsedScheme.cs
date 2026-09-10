@@ -8,9 +8,15 @@ public sealed class ParsedScheme
     public int Width { get; set; }
     public int Height { get; set; }
 
+    /// <summary>Листы PDF, распознанные как страницы сетки: ширина/высота каждого в клетках.</summary>
+    public List<ParsedSheet> Sheets { get; } = new();
+
     /// <summary>Фон клеток из PDF. Заполняется сэмплером после парсинга.</summary>
     public ParsedSchemeBackgrounds Backgrounds { get; } = new();
 }
+
+/// <summary>Один распознанный лист сетки: индекс страницы сетки, PdfPage, размер в клетках.</summary>
+public sealed record ParsedSheet(int Page, int PdfPage, int W, int H);
 
 public sealed record ParsedColor(string Symbol, string Font);
 
