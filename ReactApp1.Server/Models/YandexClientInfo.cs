@@ -1,13 +1,19 @@
-﻿namespace PatternTracker.Server.Models
+﻿using System.Text.Json.Serialization;
+
+namespace PatternTracker.Server.Models
 {
     public record YandexClientInfo
     {
-        public string RealName { get; init; }
+        [JsonPropertyName("real_name")]
+        public string? RealName { get; init; }
 
-        public string Login { get; init; }
+        [JsonPropertyName("login")]
+        public string? Login { get; init; }
 
-        public string Id { get; init; }
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
 
-        public string Psuid { get; init; }
+        [JsonPropertyName("psuid")]
+        public string? Psuid { get; init; }
     }
 }

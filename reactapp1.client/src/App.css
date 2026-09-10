@@ -1,11 +1,423 @@
 ﻿#root {
     max-width: 1280px;
     margin: 0 auto;
-    padding: 2rem;
-    text-align: center;
+    padding: 1rem 2rem;
+    text-align: left;
+    vertical-align: top;
 }
 
-th, td {
-    padding-left: 1rem;
-    padding-right: 1rem;
+body {
+    display: block;
+}
+
+.tracker {
+    text-align: left;
+    color: #213547;
+}
+
+.tracker header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.auth-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.error {
+    color: #b00020;
+    background: #fde7ea;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+}
+
+.pattern-list {
+    list-style: none;
+    padding: 0;
+}
+
+.pattern-list li {
+    padding: 0.25rem 0;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.pattern-list li.active .link {
+    font-weight: bold;
+}
+
+.link {
+    background: none;
+    border: none;
+    color: #1a73e8;
+    cursor: pointer;
+    padding: 0;
+    font-size: 1rem;
+}
+
+.back {
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+}
+
+.cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 640px;
+}
+
+.card {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    position: relative;
+}
+
+.card:hover {
+    border-color: #1a73e8;
+    background: #f8fbff;
+}
+
+.card-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.card-title {
+    font-weight: bold;
+    font-size: 1.05rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-delete {
+    font-size: 1.1rem;
+}
+
+.preview {
+    border-collapse: collapse;
+    flex-shrink: 0;
+}
+
+.preview td {
+    width: 4px;
+    height: 4px;
+    min-width: 4px;
+    padding: 0;
+    border: none;
+}
+
+.preview-empty {
+    width: 96px;
+    height: 96px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f0f0f0;
+    color: #999;
+    font-size: 0.8rem;
+    border-radius: 4px;
+}
+
+.add-card {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 120px;
+    border-style: dashed;
+    cursor: pointer;
+}
+
+.add-card .plus {
+    font-size: 3rem;
+    line-height: 1;
+    color: #1a73e8;
+}
+
+.add-card .progress {
+    width: 100%;
+}
+
+.progress-track.small {
+    height: 8px;
+    margin-top: 0.35rem;
+}
+
+.meta {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.meta.file {
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.danger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #b00020;
+}
+
+.upload-form {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.pages-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.hl {
+    font-weight: bold;
+}
+
+.viewer {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.pattern-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+    font-family: monospace;
+    outline: 2px solid #000;
+}
+
+.pattern-table td {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    max-width: 20px;
+    text-align: center;
+    vertical-align: middle;
+    border: 0;
+    cursor: default;
+    user-select: none;
+    padding: 0;
+    margin: 0;
+    color: #000;
+    box-sizing: border-box;
+    line-height: 1;
+}
+
+.pattern-table tr {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 20px;
+}
+
+.zoom {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    margin-left: 1rem;
+}
+
+.swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #999;
+    border-radius: 3px;
+    margin-right: 0.35rem;
+    vertical-align: baseline;
+}
+
+.legend li {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.code-input {
+    width: 4.5em;
+    margin-left: auto;
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.modal {
+    background: #fff;
+    color: #213547;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    max-width: 560px;
+    width: 90%;
+    max-height: 85vh;
+    overflow: auto;
+}
+
+.floss-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.key-table {
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    width: 100%;
+}
+
+.key-table th, .key-table td {
+    border: 1px solid #ddd;
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+}
+
+.key-table input {
+    width: 6em;
+}
+
+.key-table .key-symbol {
+    font-size: 1.1rem;
+    min-width: 3em;
+}
+
+.key-table .key-no-sym {
+    color: #999;
+}
+
+.key-table .key-font {
+    display: block;
+    font-family: monospace;
+    font-size: 0.65rem;
+    color: #888;
+}
+
+.legend li .color-sym {
+    display: inline-block;
+    min-width: 1.6em;
+    text-align: center;
+    font-size: 1.05rem;
+}
+
+.key-pages {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+}
+
+.key-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    padding: 0.35rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.key-page.sel {
+    border-color: #1a73e8;
+    background: #f0f6ff;
+}
+
+.key-page img {
+    max-width: 120px;
+    border: 1px solid #ccc;
+}
+
+.legend-sort {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+.legend-sort .link.active {
+    font-weight: bold;
+}
+
+.pattern-table td.done {
+    background: #c8e6c9;
+}
+
+.pattern-table td.sel-todo {
+    background: #ef9a9a;
+}
+
+.pattern-table td.sel-done {
+    background: #90caf9;
+}
+
+.legend {
+    max-width: 320px;
+}
+
+.legend ul {
+    list-style: none;
+    padding: 0;
+    max-height: 600px;
+    overflow: auto;
+}
+
+.legend li.active .link {
+    font-weight: bold;
+}
+
+.hint {
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.progress {
+    margin-top: 0.5rem;
+    max-width: 420px;
+}
+
+.progress-text {
+    margin-bottom: 0.25rem;
+}
+
+.progress-track {
+    height: 12px;
+    background: #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: #1a73e8;
+    transition: width 0.4s ease;
 }

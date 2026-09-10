@@ -43,7 +43,27 @@ export default defineConfig({
     },
     server: {
         proxy: {
-            '^/weatherforecast': {
+            '^/patterns': {
+                target,
+                secure: false
+            },
+            '^/pattern': {
+                target,
+                secure: false
+            },
+            '^/static_fonts': {
+                target,
+                secure: false
+            },
+            '^/auth_yandex': {
+                target,
+                secure: false
+            },
+            '^/user': {
+                target,
+                secure: false
+            },
+            '^/floss': {
                 target,
                 secure: false
             }
